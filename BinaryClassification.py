@@ -9,54 +9,79 @@ import seaborn as sns
 import statsmodels.api as sm
 from scipy.special import betaln
 from scipy.stats import sem, t
+import importlib
+import models
 
-def causal_support(conts, loops=10000):
-    # 引数について、
-    #     conts は分割表 (= [a, b, c, d])
-    #     loops はモンテカルロ近似に用いるサンプルのサイズ
-    # 返り値 (logscore) は support の値
-    # 使用例 → causal_support([5, 5, 5, 5], 10000000)
+importlib.reload(models)
 
+"""サンプリング関数：エッジの重みとCの生起確率を引数として刺激を作成する"""
+def compare_two_values(a, b):
+    return 1 if a >= b else 0
+
+def RAUCS(conts, loops=10000, threshold=0.15):
     rng = np.random.default_rng()  # 乱数ジェネレーター
-    power = rng.random((loops, 3))
+    power = np.zeros((loops, 3))
+
+    # ループを実行して条件を満たす乱数を生成
+    # 同時確率をpower1*power2 以上にする
+    # power1 + power2 < 1 で条件付けする
+    for i in range(loops):
+        while 1:
+            power1 = rng.uniform(0, threshold)
+            power2 = rng.uniform(0, threshold)
+            if power1 + power2 < 1:
+                break
+        #   if power1 + power2 < 1:
+        power0 = rng.uniform(power1*power2, min(1 - power1 - power2,power1,power2))
+        #   else:
+        #     power0 = rng.uniform(power1 + power2 - 1, min(power1,power2))
+        power[i] = [power0,power1,power2]
 
     a, b, c, d = conts
+    # print(a, b, c, d)
 
     # power[:, 0] 原因と結果のw
-    # power[:, 1] 背景と結果のw
+    # power[:, 1] p(c)
+    # power[:, 2] p(e)
 
     probs1 = [
-        1 - (1 - power[:, 0]) * (1 - power[:, 1]),
-        (1 - power[:, 0]) * (1 - power[:, 1]),
-        power[:, 1],
-        1 - power[:, 1],
+        power[:, 0],
+        power[:, 1] - power[:, 0],
+        power[:, 2] - power[:, 0],
+        power[:, 0] + 1 - power[:, 1] - power[:, 2],
     ]
+    # print(probs1)
     probs0 = [
-        power[:, 1],
-        1 - power[:, 1],
-        power[:, 1],
-        1 - power[:, 1],
+        power[:, 1] * power[:, 2],
+        power[:, 1] - power[:, 1] * power[:, 2],
+        power[:, 2] - power[:, 1] * power[:, 2],
+        (power[:, 1] * power[:, 2]) + 1 - (power[:, 1] + power[:, 2]),
     ]
+    # print(probs0)
 
     loglike1 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs1).T, axis=1)
     like1 = sum(np.exp(loglike1)) * (1/loops)
-    # like1 = math.log(like1)
 
     loglike0 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs0).T, axis=1)
     like0 = sum(np.exp(loglike0)) * (1/loops)
-    # like0 = math.log(like0)
 
-    return [like0/(like0+like1), like1/(like0+like1)]
+    logscore = np.log(like1/like0)
+    # return [like0/(like0+like1), like1/(like0+like1)]
+    return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
 
-def mrf_causal_support(conts, loops=10000):
-    # 引数について、
-    #     conts は分割表 (= [a, b, c, d])
-    #     loops はモンテカルロ近似に用いるサンプルのサイズ
-    # 返り値 (logscore) は support の値
-    # 使用例 → causal_support([5, 5, 5, 5], 10000000)
+def RACS(conts, loops=10000, threshold=0.5):
+    # 希少性仮定下のcausal support
+    #背景因から原因へのエッジを追加し，P(C)を計算に用いることができるようになっている
 
     rng = np.random.default_rng()  # 乱数ジェネレーター
-    power = rng.random((loops, 3))
+    power = np.zeros((loops, 3))
+
+    # ループを実行して条件を満たす乱数を生成
+    for i in range(loops):
+      power0 = rng.uniform(0, 1)
+      power1 = rng.uniform(0, threshold)
+      power2 = rng.uniform(0, threshold)
+      power[i] = [power0,power1,power2]
 
     a, b, c, d = conts
     # print(a, b, c, d)
@@ -65,30 +90,30 @@ def mrf_causal_support(conts, loops=10000):
     # power[:, 1] 背景と結果のw
     # power[:, 2] 背景と原因のw
 
+    # P(C=1) = power[:, 2]
+
     probs1 = [
-        (1 - power[:, 1]) * (1 - power[:, 2]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
-        (1 - power[:, 0]) * (1 - power[:, 2]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
-        (1 - power[:, 0]) * (1 - power[:, 1]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
-        (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
+        power[:, 2] * (1 - (1 - power[:, 0]) * (1 - power[:, 1])),# P(E=1,C=1)
+        power[:, 2] * (1 - power[:, 0]) * (1 - power[:, 1]),# P(E=0,C=1)
+        (1 - power[:, 2]) * power[:, 1],# P(E=1,C=0)
+        (1 - power[:, 2]) * (1 - power[:, 1]),# P(E=0,C=0)
     ]
     probs0 = [
-        (1 - power[:, 1]) * (1 - power[:, 2]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
-        (1 - power[:, 2]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
-        (1 - power[:, 1]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
-        (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
+        power[:, 2] * power[:, 1],# P(E=1,C=1)
+        power[:, 2] * (1 - power[:, 1]),# P(E=0,C=1)
+        (1 - power[:, 2]) * power[:, 1],# P(E=1,C=0)
+        (1 - power[:, 2]) * (1 - power[:, 1]),# P(E=0,C=0) 1 -w1 -w2 +w1 w2
     ]
 
     loglike1 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs1).T, axis=1)
     like1 = sum(np.exp(loglike1)) * (1/loops)
-    # like1 = math.log(like1)
 
     loglike0 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs0).T, axis=1)
     like0 = sum(np.exp(loglike0)) * (1/loops)
-    # like0 = math.log(like0)
 
-    return [like0/(like0+like1), like1/(like0+like1)]
-
-"""サンプリング関数：エッジの重みとCの生起確率を引数として刺激を作成する"""
+    logscore = np.log(like1/like0)
+    # return [like0/(like0+like1), like1/(like0+like1)]    
+    return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
 
 def sample_from_bayesnet(w0, w1,pc,  n_samples):
   a = pc * (1-(1-w0)*(1-w1))
@@ -130,11 +155,11 @@ probabilities = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
 df = pd.DataFrame()
 for sample_size in sample_sizes:
   for probability in probabilities:
-    for i in range(1000):
+    for i in range(100):
       processed = 0 # モデルが定義されるサンプルの数を数えるための変数
-      support_sum_sse = 0
-      mrf_support_sum_sse = 0
-      if random.random() < 0.5:
+      RACS_sum_sse = 0
+      RAUCS_sum_sse = 0
+      if random.random() < 0:
         w1 = random.uniform(0,1)
       else:
         w1 = 0
@@ -146,10 +171,10 @@ for sample_size in sample_sizes:
           else:
             ans = [0,1]
           sampled_values = sample_from_bayesnet(w0,w1,probability ,sample_size)
-          support = causal_support(sampled_values)
-          support_sum_sse += sse(support, ans)
-          mrf_support = mrf_causal_support(sampled_values)
-          mrf_support_sum_sse += sse(mrf_support, ans)
+          RACS_val = RACS(sampled_values)
+          RACS_sum_sse += sse(RACS_val, ans)
+          RAUCS_val = RAUCS(sampled_values)
+          RAUCS_sum_sse += sse(RAUCS_val, ans)
           # 処理が成功した場合にカウンタを増やす
           processed += 1
         except Exception as e:
@@ -157,9 +182,9 @@ for sample_size in sample_sizes:
           print(f"エラーが発生しました: {e}")
           continue
           # データフレームに追加
-      support_mse = support_sum_sse / processed
-      mrf_support_mse = mrf_support_sum_sse / processed
-      df = pd.concat([df, pd.DataFrame([{'mrf_support_value':mrf_support_mse,'support_value':support_mse,'probability': probability,'sample_size':sample_size,'w0':w0,'w1':w1,'ace':w1*(1-w0)}])], ignore_index=True)
+      RACS_mse = RACS_sum_sse / processed
+      RAUCS_mse = RAUCS_sum_sse / processed
+      df = pd.concat([df, pd.DataFrame([{'RAUCS_value':RAUCS_mse,'RACS_value':RACS_mse,'probability': probability,'sample_size':sample_size,'w0':w0,'w1':w1,'ace':w1*(1-w0)}])], ignore_index=True)
 
 w1 = 0.1
 for probability in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
@@ -188,8 +213,8 @@ sample_sizes = grouped['sample_size'].unique()
 for sample_size in sample_sizes:
     subset = grouped[grouped['sample_size'] == sample_size]
     plt.figure(figsize=(10, 6))
-    plt.plot(subset['probability'], subset['mrf_support_value'], label='mrf_support')
-    plt.plot(subset['probability'], subset['support_value'], label='support')
+    plt.plot(subset['probability'], subset['RAUCS_value'], label='RAUCS')
+    plt.plot(subset['probability'], subset['RACS_value'], label='RACS')
     plt.xlabel('P(C), P(E)')
     plt.ylabel('mse')
     plt.title(f'Sample Size: {sample_size}')
