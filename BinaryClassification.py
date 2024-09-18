@@ -1,0 +1,198 @@
+import pandas as pd
+import numpy as np
+import random
+import math
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+import statsmodels.api as sm
+from scipy.special import betaln
+from scipy.stats import sem, t
+
+def causal_support(conts, loops=10000):
+    # 引数について、
+    #     conts は分割表 (= [a, b, c, d])
+    #     loops はモンテカルロ近似に用いるサンプルのサイズ
+    # 返り値 (logscore) は support の値
+    # 使用例 → causal_support([5, 5, 5, 5], 10000000)
+
+    rng = np.random.default_rng()  # 乱数ジェネレーター
+    power = rng.random((loops, 3))
+
+    a, b, c, d = conts
+
+    # power[:, 0] 原因と結果のw
+    # power[:, 1] 背景と結果のw
+
+    probs1 = [
+        1 - (1 - power[:, 0]) * (1 - power[:, 1]),
+        (1 - power[:, 0]) * (1 - power[:, 1]),
+        power[:, 1],
+        1 - power[:, 1],
+    ]
+    probs0 = [
+        power[:, 1],
+        1 - power[:, 1],
+        power[:, 1],
+        1 - power[:, 1],
+    ]
+
+    loglike1 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs1).T, axis=1)
+    like1 = sum(np.exp(loglike1)) * (1/loops)
+    # like1 = math.log(like1)
+
+    loglike0 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs0).T, axis=1)
+    like0 = sum(np.exp(loglike0)) * (1/loops)
+    # like0 = math.log(like0)
+
+    return [like0/(like0+like1), like1/(like0+like1)]
+
+def mrf_causal_support(conts, loops=10000):
+    # 引数について、
+    #     conts は分割表 (= [a, b, c, d])
+    #     loops はモンテカルロ近似に用いるサンプルのサイズ
+    # 返り値 (logscore) は support の値
+    # 使用例 → causal_support([5, 5, 5, 5], 10000000)
+
+    rng = np.random.default_rng()  # 乱数ジェネレーター
+    power = rng.random((loops, 3))
+
+    a, b, c, d = conts
+    # print(a, b, c, d)
+
+    # power[:, 0] 原因と結果のw
+    # power[:, 1] 背景と結果のw
+    # power[:, 2] 背景と原因のw
+
+    probs1 = [
+        (1 - power[:, 1]) * (1 - power[:, 2]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
+        (1 - power[:, 0]) * (1 - power[:, 2]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
+        (1 - power[:, 0]) * (1 - power[:, 1]) * (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
+        (1 / (4 - 2 *(power[:, 0] + power[:, 1] + power[:, 2]) + power[:, 0] * power[:, 1] + power[:, 0] * power[:, 2] + power[:, 1] * power[:, 2])),
+    ]
+    probs0 = [
+        (1 - power[:, 1]) * (1 - power[:, 2]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
+        (1 - power[:, 2]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
+        (1 - power[:, 1]) * (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
+        (1 / (4 - 2 * (power[:, 1] + power[:, 2]) + power[:, 1] * power[:, 2])),
+    ]
+
+    loglike1 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs1).T, axis=1)
+    like1 = sum(np.exp(loglike1)) * (1/loops)
+    # like1 = math.log(like1)
+
+    loglike0 = np.sum((np.ones((loops, 1)) * np.array(conts)) * np.log(probs0).T, axis=1)
+    like0 = sum(np.exp(loglike0)) * (1/loops)
+    # like0 = math.log(like0)
+
+    return [like0/(like0+like1), like1/(like0+like1)]
+
+"""サンプリング関数：エッジの重みとCの生起確率を引数として刺激を作成する"""
+
+def sample_from_bayesnet(w0, w1,pc,  n_samples):
+  a = pc * (1-(1-w0)*(1-w1))
+  b = pc * (1 - (1-(1-w0)*(1-w1)))
+  c = (1 - pc) * (1-(1-w0))
+  d = (1 - pc) * (1 - (1-(1-w0)))
+  probabilities = [a, b, c, d]
+
+  # 値のリスト
+  values = ['A', 'B', 'C', 'D']
+
+  # サンプリングを実行
+  samples = np.random.choice(values, size=n_samples, p=probabilities)
+
+  # 各値が得られた回数をカウント
+  counts = {value: 0 for value in values}
+  for sample in samples:
+      counts[sample] += 1
+
+  # カウントを配列に変換
+  count_array = [counts[value] for value in values]
+
+  return count_array
+
+def sse(a, b):
+    # 二乗和誤差を計算
+    sse = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+    return sse
+
+def round_to_tenth(value):
+    return round(value * 10) / 10
+
+"""### シミュレーションする場所"""
+
+sample_sizes = [7,21,56]
+# [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
+# [0.1,0.3,0.5,0.7,0.9]
+probabilities = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
+df = pd.DataFrame()
+for sample_size in sample_sizes:
+  for probability in probabilities:
+    for i in range(1000):
+      processed = 0 # モデルが定義されるサンプルの数を数えるための変数
+      support_sum_sse = 0
+      mrf_support_sum_sse = 0
+      if random.random() < 0.5:
+        w1 = random.uniform(0,1)
+      else:
+        w1 = 0
+      w0 = (probability * (1 - w1)) / (1 - (probability * w1))
+      while processed < 1:
+        try:
+          if w1 == 0:
+            ans = [1,0]
+          else:
+            ans = [0,1]
+          sampled_values = sample_from_bayesnet(w0,w1,probability ,sample_size)
+          support = causal_support(sampled_values)
+          support_sum_sse += sse(support, ans)
+          mrf_support = mrf_causal_support(sampled_values)
+          mrf_support_sum_sse += sse(mrf_support, ans)
+          # 処理が成功した場合にカウンタを増やす
+          processed += 1
+        except Exception as e:
+          # エラーが発生した場合にエラーメッセージを表示し、処理をスキップ
+          print(f"エラーが発生しました: {e}")
+          continue
+          # データフレームに追加
+      support_mse = support_sum_sse / processed
+      mrf_support_mse = mrf_support_sum_sse / processed
+      df = pd.concat([df, pd.DataFrame([{'mrf_support_value':mrf_support_mse,'support_value':support_mse,'probability': probability,'sample_size':sample_size,'w0':w0,'w1':w1,'ace':w1*(1-w0)}])], ignore_index=True)
+
+w1 = 0.1
+for probability in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
+   print((probability * (1 - w1)) / (1 - (probability * w1)))
+
+df
+
+grouped = df.groupby(['sample_size', 'probability']).mean().reset_index()
+# プロット
+sample_sizes = grouped['sample_size'].unique()
+for sample_size in sample_sizes:
+    subset = grouped[grouped['sample_size'] == sample_size]
+    plt.figure(figsize=(10, 6))
+    plt.plot(subset['probability'], subset['ace'], label='ace')
+    plt.xlabel('Probability')
+    plt.ylabel('Average Value')
+    plt.title(f'Sample Size: {sample_size}')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+grouped = df.groupby(['sample_size', 'probability']).mean().reset_index()
+
+# プロット
+sample_sizes = grouped['sample_size'].unique()
+for sample_size in sample_sizes:
+    subset = grouped[grouped['sample_size'] == sample_size]
+    plt.figure(figsize=(10, 6))
+    plt.plot(subset['probability'], subset['mrf_support_value'], label='mrf_support')
+    plt.plot(subset['probability'], subset['support_value'], label='support')
+    plt.xlabel('P(C), P(E)')
+    plt.ylabel('mse')
+    plt.title(f'Sample Size: {sample_size}')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
