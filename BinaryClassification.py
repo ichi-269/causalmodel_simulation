@@ -66,8 +66,8 @@ def RAUCS(conts, loops=10000, threshold=0.15):
     like0 = sum(np.exp(loglike0)) * (1/loops)
 
     logscore = np.log(like1/like0)
-    # return [like0/(like0+like1), like1/(like0+like1)]
-    return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
+    return [like0/(like0+like1), like1/(like0+like1)]
+    # return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
 
 def RACS(conts, loops=10000, threshold=0.5):
     # 希少性仮定下のcausal support
@@ -112,15 +112,24 @@ def RACS(conts, loops=10000, threshold=0.5):
     like0 = sum(np.exp(loglike0)) * (1/loops)
 
     logscore = np.log(like1/like0)
-    # return [like0/(like0+like1), like1/(like0+like1)]    
-    return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
+    return [like0/(like0+like1), like1/(like0+like1)]    
+    # return [compare_two_values(like0, like1),compare_two_values(like1, like0)]
 
-def sample_from_bayesnet(w0, w1,pc,  n_samples):
-  a = pc * (1-(1-w0)*(1-w1))
-  b = pc * (1 - (1-(1-w0)*(1-w1)))
-  c = (1 - pc) * (1-(1-w0))
-  d = (1 - pc) * (1 - (1-(1-w0)))
+def sample_from_bayesnet(w0, w1,w2,  n_samples):
+  #w0: B->E の重み
+  #w1: C->E の重み
+  #w2: B->C の重み
+  #n_samples: サンプルサイズ
+  # a = w2 * (1-(1-w0)*(1-w1))
+  # b = w2 * (1 - (1-(1-w0)*(1-w1)))
+  # c = (1 - w2) * (1-(1-w0))
+  # d = (1 - w2) * (1 - (1-(1-w0)))
+  a = w2 * (1 - (1 - w0) * (1 - w1))# P(E=1,C=1)
+  b = w2 * (1 - w0) * (1 - w1)# P(E=0,C=1)
+  c = (1 - w2) * w1# P(E=1,C=0)
+  d = (1 - w2) * (1 - w1)# P(E=0,C=0)
   probabilities = [a, b, c, d]
+  # print(a+b+c+d)
 
   # 値のリスト
   values = ['A', 'B', 'C', 'D']
@@ -149,72 +158,65 @@ def round_to_tenth(value):
 """### シミュレーションする場所"""
 
 sample_sizes = [7,21,56]
-# [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
-# [0.1,0.3,0.5,0.7,0.9]
-probabilities = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
 df = pd.DataFrame()
 for sample_size in sample_sizes:
-  for probability in probabilities:
-    for i in range(100):
-      processed = 0 # モデルが定義されるサンプルの数を数えるための変数
-      RACS_sum_sse = 0
-      RAUCS_sum_sse = 0
-      if random.random() < 0:
-        w1 = random.uniform(0,1)
-      else:
-        w1 = 0
-      w0 = (probability * (1 - w1)) / (1 - (probability * w1))
-      while processed < 1:
-        try:
-          if w1 == 0:
-            ans = [1,0]
-          else:
-            ans = [0,1]
-          sampled_values = sample_from_bayesnet(w0,w1,probability ,sample_size)
-          RACS_val = RACS(sampled_values)
-          RACS_sum_sse += sse(RACS_val, ans)
-          RAUCS_val = RAUCS(sampled_values)
-          RAUCS_sum_sse += sse(RAUCS_val, ans)
-          # 処理が成功した場合にカウンタを増やす
-          processed += 1
-        except Exception as e:
-          # エラーが発生した場合にエラーメッセージを表示し、処理をスキップ
-          print(f"エラーが発生しました: {e}")
-          continue
-          # データフレームに追加
-      RACS_mse = RACS_sum_sse / processed
-      RAUCS_mse = RAUCS_sum_sse / processed
-      df = pd.concat([df, pd.DataFrame([{'RAUCS_value':RAUCS_mse,'RACS_value':RACS_mse,'probability': probability,'sample_size':sample_size,'w0':w0,'w1':w1,'ace':w1*(1-w0)}])], ignore_index=True)
+  for i in range(10000):
+    processed = 0 # モデルが定義されるサンプルの数を数えるための変数
+    RACS_sum_sse = 0
+    RAUCS_sum_sse = 0
+    if random.random() < 0.5:
+      w1 = random.uniform(0,1)
+    else:
+      w1 = 0
+    w2 = random.uniform(0,1)
+    w0 = random.uniform(0,1)
+    average_baserate = int((w2+w0)*5)/10
+    while processed < 1:
+      try:
+        if w1 == 0:
+          ans = [1,0]
+        else:
+          ans = [0,1]
+        sampled_values = sample_from_bayesnet(w0,w1,w2 ,sample_size)
+        RACS_val = RACS(sampled_values)
+        RACS_sum_sse += sse(RACS_val, ans)
+        RAUCS_val = RAUCS(sampled_values)
+        RAUCS_sum_sse += sse(RAUCS_val, ans)
+        # 処理が成功した場合にカウンタを増やす
+        processed += 1
+      except Exception as e:
+        # エラーが発生した場合にエラーメッセージを表示し、処理をスキップ
+        print(f"エラーが発生しました: {e}")
+        continue
+        # データフレームに追加
+    RACS_mse = RACS_sum_sse / processed
+    RAUCS_mse = RAUCS_sum_sse / processed
+    df = pd.concat([df, pd.DataFrame([{'RAUCS_value':RAUCS_mse,'RACS_value':RACS_mse,'average_baserate': average_baserate,'sample_size':sample_size,'w0':w0,'w1':w1,'ace':w1*(1-w0)}])], ignore_index=True)
+print(df)
 
-w1 = 0.1
-for probability in [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
-   print((probability * (1 - w1)) / (1 - (probability * w1)))
-
-df
-
-grouped = df.groupby(['sample_size', 'probability']).mean().reset_index()
+grouped = df.groupby(['sample_size', 'average_baserate']).mean().reset_index()
 # プロット
 sample_sizes = grouped['sample_size'].unique()
 for sample_size in sample_sizes:
     subset = grouped[grouped['sample_size'] == sample_size]
     plt.figure(figsize=(10, 6))
-    plt.plot(subset['probability'], subset['ace'], label='ace')
-    plt.xlabel('Probability')
+    plt.plot(subset['average_baserate'], subset['ace'], label='ace')
+    plt.xlabel('average_baserate')
     plt.ylabel('Average Value')
     plt.title(f'Sample Size: {sample_size}')
     plt.legend()
     plt.grid(True)
     plt.show()
 
-grouped = df.groupby(['sample_size', 'probability']).mean().reset_index()
+grouped = df.groupby(['sample_size', 'average_baserate']).mean().reset_index()
 
 # プロット
 sample_sizes = grouped['sample_size'].unique()
 for sample_size in sample_sizes:
     subset = grouped[grouped['sample_size'] == sample_size]
     plt.figure(figsize=(10, 6))
-    plt.plot(subset['probability'], subset['RAUCS_value'], label='RAUCS')
-    plt.plot(subset['probability'], subset['RACS_value'], label='RACS')
+    plt.plot(subset['average_baserate'], subset['RAUCS_value'], label='RAUCS')
+    plt.plot(subset['average_baserate'], subset['RACS_value'], label='RACS')
     plt.xlabel('P(C), P(E)')
     plt.ylabel('mse')
     plt.title(f'Sample Size: {sample_size}')
