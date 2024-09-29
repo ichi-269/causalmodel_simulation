@@ -34,7 +34,7 @@ def round_to_tenth(value):
 sample_sizes = [7,21,56]
 df = pd.DataFrame()
 for sample_size in sample_sizes:
-  for i in range(100):
+  for i in range(1000):
     processed = 0 # モデルが定義されるサンプルの数を数えるための変数
     RACS_sum_sse = 0
     RAUCS_sum_sse = 0
@@ -87,13 +87,17 @@ grouped = df.groupby(['sample_size', 'average_baserate']).mean().reset_index()
 # プロット
 sample_sizes = grouped['sample_size'].unique()
 for sample_size in sample_sizes:
-    subset = grouped[grouped['sample_size'] == sample_size]
-    plt.figure(figsize=(10, 6))
-    plt.plot(subset['average_baserate'], subset['RAUCS_value'], label='RAUCS')
-    plt.plot(subset['average_baserate'], subset['RACS_value'], label='RACS')
-    plt.xlabel('P(C), P(E)')
-    plt.ylabel('mse')
-    plt.title(f'Sample Size: {sample_size}')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+  subset = grouped[grouped['sample_size'] == sample_size]
+  plt.figure(figsize=(10, 6))
+  plt.plot(subset['average_baserate'], subset['RAUCS_value'], label='RAUCS')
+  plt.plot(subset['average_baserate'], subset['RACS_value'], label='RACS')
+  plt.xlabel('average_baserate')
+  plt.ylabel('mse')
+  plt.title(f'Sample Size: {sample_size}')
+  plt.legend()
+  plt.grid(True)
+  # Saving each figure as a PNG image
+  fig_filename = f"BC_simsample_size_{sample_size}.png"
+  plt.savefig(fig_filename)
+  print(f"Figure saved as {fig_filename}")
+  plt.show()

@@ -82,4 +82,9 @@ for sample_size, results in r2_results.items():
     ax.legend()
     figures[sample_size] = fig
 
+    # Saving each figure as a PNG image
+    fig_filename = f"ace_sim_sample_size_{sample_size}.png"
+    fig.savefig(fig_filename)
+    print(f"Figure saved as {fig_filename}")
+
 plt.show()
