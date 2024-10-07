@@ -18,7 +18,7 @@ importlib.reload(sampling)
 sample_sizes = [7,21,56]
 df = pd.DataFrame()
 for sample_size in sample_sizes:
-  for i in range(5000):
+  for i in range(5):
     w0 = random.uniform(0,1)
     w1 = random.uniform(0,1)
     w2 = random.uniform(0,1)
